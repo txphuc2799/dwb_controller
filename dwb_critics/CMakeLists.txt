@@ -147,7 +147,6 @@ add_library(dwb_critics
   src/obstacle_footprint.cpp
   src/oscillation.cpp
   src/prefer_forward.cpp
-  src/rotate_to_goal.cpp
   src/twirling.cpp
 )
 

@@ -268,7 +268,7 @@ bool DWBController::isGoalReached(
   nav_2d_msgs::Pose2DStamped & transformed_end_pose)
 {
   // When robot rotate in place check if recieve a new goal before done
-  // rotate in place avoid robot get error
+  // rotate in place avoid robot get oscillation
   if (prev_goal_pose_.pose != goal_pose.pose) {
     check_xy_ = true;
   }
