@@ -300,16 +300,11 @@ void DWBController::prepareGlobalPlan(
   if (publish_plan) {
     pub_->publishTransformedPlan(transformed_plan);
   }
-  try {
-    dwb_core::transformPose(
+  if (!dwb_core::transformPose(
       tf_, costmap_ros_->getGlobalFrameID(), goal_pose_,
-      goal_pose, transform_tolerance_);
-  }
-  catch(const dwb_core::ControllerTFError & e)
-  {
-    throw dwb_core::ControllerTFError(
-      "DWBController: Transformation failed!" +
-            std::string(e.what()));
+      goal_pose, transform_tolerance_)) {
+    throw dwb_core::
+          ControllerTFError("Unable to transform goal pose into global plan's frame");
   }
 }
 
@@ -583,9 +578,12 @@ DWBController::transformGlobalPlan(
       nav_2d_msgs::Pose2DStamped stamped_pose, transformed_pose;
       stamped_pose.header.frame_id = global_plan_.header.frame_id;
       stamped_pose.pose = global_plan_pose;
-      dwb_core::transformPose(
+      if (!dwb_core::transformPose(
         tf_, transformed_plan.header.frame_id,
-        stamped_pose, transformed_pose, transform_tolerance_);
+        stamped_pose, transformed_pose, transform_tolerance_)) {
+        throw dwb_core::
+          ControllerTFError("Unable to transform pose into global plan's frame");
+      }
       return transformed_pose.pose;
     };
 
