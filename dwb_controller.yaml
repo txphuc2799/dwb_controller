@@ -1,5 +1,6 @@
 base_local_planner: dwb_controller/DWBController
 DWBController:
+  odom_topic: /odometry/filtered
   debug_trajectory_details: True
   min_vel_x: 0.1
   min_vel_y: 0.0
