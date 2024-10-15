@@ -198,14 +198,13 @@ bool DWBController::setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_
   for (TrajectoryCritic::Ptr & critic : critics_) {
     critic->reset();
   }
-
-  end_pose_.header.frame_id = orig_global_plan.back().header.frame_id;
-  end_pose_.pose = orig_global_plan.back().pose;
-
   traj_generator_->reset();
 
   pub_->publishGlobalPlan(path2d);
   global_plan_ = path2d;
+
+  goal_pose_.header.frame_id = global_plan_.header.frame_id;
+  goal_pose_.pose = global_plan_.poses.back();
 
   goal_reached_ = false;
   return true;
@@ -234,36 +233,6 @@ bool DWBController::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   double angle_to_goal;
 
   try {
-    // geometry_msgs::PoseStamped robot_pose_map;
-    // if (!transformPose(tf_,
-    //                    global_plan_.header.frame_id,
-    //                    robot_pose, robot_pose_map, transform_tolerance_)) {
-    //     ROS_WARN("%s: " "Unable to transform robot pose into global plan's frame", controller_name_.c_str());
-    //     return false;
-    // }
-
-    // double dx_ = global_plan_.poses.back().x - robot_pose.pose.position.x;
-    // double dy_ = global_plan_.poses.back().y - robot_pose.pose.position.y;
-    // dist_to_goal = std::hypot(dx_, dy_);
-
-    // double goal_yaw_ = global_plan_.poses.back().theta;
-    // double current_robot_yaw_ = tf2::getYaw(robot_pose.pose.orientation);
-    // angle_to_goal = angles::normalize_angle(goal_yaw_ - current_robot_yaw_);
-
-    // // Check if xy reached
-    // if (isGoalReached(robot_pose)) {
-    //   if (shouldRotateToGoalHeading(angle_to_goal)) {
-    //     ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
-    //     rotateToHeading(cmd_vel.linear.x, cmd_vel.angular.z, angle_to_goal);
-    //   }
-    //   else {
-    //     goal_reached_ = true;
-    //     cmd_vel.linear.x = 0.0;
-    //     cmd_vel.angular.z = 0.0;
-    //   }
-    //   return true;
-    // }
-
     nav_2d_msgs::Twist2DStamped cmd_vel2d = computeVelocityCommands(
       nav_2d_utils::poseStampedToPose2D(robot_pose),
       nav_2d_utils::twist3Dto2D(robot_vel_), results);
@@ -293,43 +262,53 @@ bool DWBController::isGoalReached()
     return false;
 }
 
-bool DWBController::isGoalReached(geometry_msgs::PoseStamped robot_pose)
+bool DWBController::isGoalReached(
+  const nav_2d_msgs::Pose2DStamped & curr_robot_pose,
+  nav_2d_msgs::Pose2DStamped & goal_pose,
+  nav_2d_msgs::Pose2DStamped & transformed_end_pose)
 {
-  geometry_msgs::PoseStamped transformed_end_pose;
-  transformPose(tf_, costmap_ros_->getGlobalFrameID(),
-      end_pose_, transformed_end_pose, transform_tolerance_);
-  
-  if (prev_goal_.pose != end_pose_.pose) {
-      check_xy_ = true;
+  // When robot rotate in place check if recieve a new goal before done
+  // rotate in place avoid robot get error
+  if (prev_goal_pose_.pose != goal_pose.pose) {
+    check_xy_ = true;
   }
-  prev_goal_.pose = end_pose_.pose;
+  prev_goal_pose_.pose = goal_pose.pose;
   
-  double dx = robot_pose.pose.position.x - transformed_end_pose.pose.position.x,
-  dy = robot_pose.pose.position.y - transformed_end_pose.pose.position.y;
-  if ((dx * dx + dy * dy > xy_goal_tolerance_*xy_goal_tolerance_)
-      && check_xy_) {
+  double dx = curr_robot_pose.pose.x - transformed_end_pose.pose.x,
+         dy = curr_robot_pose.pose.y - transformed_end_pose.pose.y;
+  if (check_xy_) {
+    if (dx * dx + dy * dy > xy_goal_tolerance_*xy_goal_tolerance_) {
       return false;
-  }
-  else {
+    }
+    else {
       check_xy_ = false;
       return true;
+    }
   }
 }
 
 void DWBController::prepareGlobalPlan(
   const nav_2d_msgs::Pose2DStamped & pose, nav_2d_msgs::Path2D & transformed_plan,
-  nav_2d_msgs::Pose2DStamped & goal_pose, bool publish_plan)
+  nav_2d_msgs::Pose2DStamped & goal_pose,
+  double &dist_to_goal,
+  double &angle_to_goal,
+  bool publish_plan)
 {
-  transformed_plan = transformGlobalPlan(pose);
+  transformed_plan = transformGlobalPlan(pose, dist_to_goal, angle_to_goal);
   if (publish_plan) {
     pub_->publishTransformedPlan(transformed_plan);
   }
-
-  goal_pose.header.frame_id = global_plan_.header.frame_id;
-  goal_pose.pose = global_plan_.poses.back();
-  dwb_core::transformPose(
-    tf_, costmap_ros_->getGlobalFrameID(), goal_pose,
-    goal_pose, transform_tolerance_);
+  try {
+    dwb_core::transformPose(
+      tf_, costmap_ros_->getGlobalFrameID(), goal_pose_,
+      goal_pose, transform_tolerance_);
+  }
+  catch(const dwb_core::ControllerTFError & e)
+  {
+    throw dwb_core::ControllerTFError(
+      "DWBController: Transformation failed!" +
+            std::string(e.what()));
+  }
 }
 
 nav_2d_msgs::Twist2DStamped
@@ -344,15 +323,40 @@ DWBController::computeVelocityCommands(
   }
 
   nav_2d_msgs::Path2D transformed_plan;
-  nav_2d_msgs::Pose2DStamped goal_pose;
+  nav_2d_msgs::Pose2DStamped transformed_end_pose;
 
-  prepareGlobalPlan(pose, transformed_plan, goal_pose);
+  double dist_to_goal;
+  double angle_to_goal;
+
+  prepareGlobalPlan(pose,
+                    transformed_plan,
+                    transformed_end_pose,
+                    dist_to_goal,
+                    angle_to_goal);
 
   costmap_2d::Costmap2D * costmap = costmap_ros_->getCostmap();
   std::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(costmap->getMutex()));
 
+  // Return Value
+  nav_2d_msgs::Twist2DStamped cmd_vel;
+  cmd_vel.header.stamp = ros::Time::now();
+
+  // Check if xy reached
+  if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
+    if (shouldRotateToGoalHeading(angle_to_goal)) {
+      ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
+      rotateToHeading(cmd_vel.velocity.x, cmd_vel.velocity.theta, angle_to_goal);
+    }
+    else {
+      goal_reached_ = true;
+      cmd_vel.velocity.x = 0.0;
+      cmd_vel.velocity.theta = 0.0;
+    }
+    return cmd_vel;
+  }
+
   for (TrajectoryCritic::Ptr & critic : critics_) {
-    if (!critic->prepare(pose.pose, velocity, goal_pose.pose, transformed_plan)) {
+    if (!critic->prepare(pose.pose, velocity, transformed_end_pose.pose, transformed_plan)) {
       ROS_WARN("%s: ""A scoring function failed to prepare", controller_name_.c_str());
     }
   }
@@ -360,9 +364,6 @@ DWBController::computeVelocityCommands(
   try {
     dwb_msgs::TrajectoryScore best = coreScoringAlgorithm(pose.pose, velocity, results);
 
-    // Return Value
-    nav_2d_msgs::Twist2DStamped cmd_vel;
-    cmd_vel.header.stamp = ros::Time::now();
     cmd_vel.velocity = best.traj.velocity;
 
     // debrief stateful scoring functions
@@ -495,7 +496,9 @@ DWBController::scoreTrajectory(
 
 nav_2d_msgs::Path2D
 DWBController::transformGlobalPlan(
-  const nav_2d_msgs::Pose2DStamped & pose)
+  const nav_2d_msgs::Pose2DStamped & pose,
+  double &dist_to_goal,
+  double &angle_to_goal)
 {
   if (global_plan_.poses.empty()) {
     throw dwb_core::InvalidPath("Received plan with zero length");
@@ -510,6 +513,11 @@ DWBController::transformGlobalPlan(
     throw dwb_core::
           ControllerTFError("Unable to transform robot pose into global plan's frame");
   }
+
+  double dx_ = global_plan_.poses.back().x - robot_pose.pose.x;
+  double dy_ = global_plan_.poses.back().y - robot_pose.pose.y;
+  dist_to_goal = std::hypot(dx_, dy_);
+  angle_to_goal = angles::normalize_angle(global_plan_.poses.back().theta - robot_pose.pose.theta);
 
   // we'll discard points on the plan that are outside the local costmap
   costmap_2d::Costmap2D * costmap = costmap_ros_->getCostmap();

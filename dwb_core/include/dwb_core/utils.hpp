@@ -211,7 +211,7 @@ inline bool transformPose(
   catch(tf2::TransformException& ex)
   {
     ROS_ERROR(
-      "VectorPursuitController: Failed when transform to '%s' from '%s' with error: %s"
+      "DWBController: Failed when transform to '%s' from '%s' with error: %s"
       , in_pose.header.frame_id.c_str(), frame.c_str(), ex.what()
     );
     return false;
@@ -237,7 +237,7 @@ inline bool transformPose(
   catch(tf2::TransformException& ex)
   {
     ROS_ERROR(
-      "VectorPursuitController: Failed when transform to '%s' from '%s' with error: %s"
+      "DWBController: Failed when transform to '%s' from '%s' with error: %s"
       , in_pose.header.frame_id.c_str(), frame.c_str(), ex.what()
     );
     return false;
