@@ -72,7 +72,7 @@ DWBController::DWBController()
 void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d::Costmap2DROS* costmap_ros)
 {
   if (!initialized_) {
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~/" + name);
     ros::NodeHandle pnh_("~" + name);
     nh_ = pnh_;
     costmap_ros_ = costmap_ros;
@@ -284,6 +284,8 @@ bool DWBController::isGoalReached(
       check_xy_ = false;
       return true;
     }
+  } else {
+    return true;
   }
 }
 
