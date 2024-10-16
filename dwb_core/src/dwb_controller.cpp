@@ -83,7 +83,9 @@ void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d
 
     pnh_.param("odom_topic", odom_topic_, std::string("/odom"));
     pnh_.param("transform_tolerance", transform_tolerance_, 1.0);
-
+    pnh_.param("controller_frequency", controller_frequency_, 15.0);
+    control_duration_ = 1 / controller_frequency_;
+    pnh_.param("simulate_ahead_time", simulate_ahead_time_, 30.0);
     pnh_.param("goal_angular_vel_scaling_angle", goal_angular_vel_scaling_angle_, 30.0);
     pnh_.param("goal_angle_scaling_factor", goal_angle_scaling_factor_, 1.2);
     pnh_.param("rotate_to_goal_max_angular_vel", rotate_to_goal_max_angular_vel_, 0.5);
@@ -337,7 +339,7 @@ DWBController::computeVelocityCommands(
   if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
     if (shouldRotateToGoalHeading(angle_to_goal)) {
       ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
-      rotateToHeading(cmd_vel.velocity.x, cmd_vel.velocity.theta, angle_to_goal);
+      rotateToHeading(cmd_vel.velocity.x, cmd_vel.velocity.theta, angle_to_goal, pose);
     }
     else {
       goal_reached_ = true;
@@ -602,13 +604,18 @@ bool DWBController::shouldRotateToGoalHeading(double angle_to_goal)
   return fabs(angle_to_goal) >= yaw_tolerance_;
 }
 
-void DWBController::rotateToHeading(double & linear_vel, double & angular_vel,
-                                    const double & angle_to_path)
+void DWBController::rotateToHeading(
+  double & linear_vel,
+  double & angular_vel,
+  const double & angle_to_path,
+  const nav_2d_msgs::Pose2DStamped & robot_pose)
 {
   // Rotate in place using max angular velocity / acceleration possible
   linear_vel = 0.0;
   const double sign = angle_to_path > 0.0 ? 1.0 : -1.0;
   double angle_to_goal;
+
+  bool is_stopped = fabs(angle_to_goal) <= yaw_tolerance_;
       
   if (std::abs(angle_to_path) < angles::from_degrees(goal_angular_vel_scaling_angle_)) {
       angle_to_goal = std::abs(angle_to_path) / goal_angle_scaling_factor_;
@@ -624,9 +631,48 @@ void DWBController::rotateToHeading(double & linear_vel, double & angular_vel,
   } else {
       rotate_to_goal_angular_vel = unbounded_angular_vel;
   }
+  isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose);
+
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
                            rotate_to_goal_max_angular_vel_);
+}
+
+void DWBController::isCollisionFree(
+  double & linear_vel, double & angular_vel,
+  bool is_stopped,
+  const nav_2d_msgs::Pose2DStamped & pose)
+{
+  // Simulate rotation ahead by time in control frequency increments
+  double simulated_time = 0.0;
+  double initial_yaw = pose.pose.theta;
+  double yaw = 0.0;
+  double footprint_cost = 0.0;
+
+  while (simulated_time < simulate_ahead_time_) {
+    simulated_time += control_duration_;
+    yaw = initial_yaw + angular_vel * simulated_time;
+
+    // Stop simulating past the point it would be passed onto the primary controller
+    if (is_stopped) {
+      break;
+    }
+
+    using namespace costmap_2d;  // NOLINT
+    footprint_cost = collision_checker_->footprintCostAtPose(
+      pose.pose.x, pose.pose.y,
+      yaw, costmap_ros_->getRobotFootprint());
+
+    if (footprint_cost == static_cast<double>(NO_INFORMATION) &&
+      costmap_ros_->getLayeredCostmap()->isTrackingUnknown())
+    {
+      throw std::runtime_error("Detected a potential collision ahead!");
+    }
+
+    if (footprint_cost >= static_cast<double>(LETHAL_OBSTACLE)) {
+      throw std::runtime_error("Detected collision ahead!");
+    }
+  }
 }
 
 }  // namespace dwb_core

@@ -52,6 +52,7 @@
 #include <nav_core/base_local_planner.h>
 #include <base_local_planner/odometry_helper_ros.h>
 #include <costmap_2d/costmap_2d_ros.h>
+#include <dwb_core/footprint_collision_checker.hpp>
 
 namespace dwb_core
 {
@@ -142,6 +143,17 @@ public:
     const nav_2d_msgs::Twist2D & velocity,
     std::shared_ptr<dwb_msgs::LocalPlanEvaluation> & results);
 
+  /**
+   * @brief Checks if rotation is safe
+   * @param cmd_vel Velocity to check over
+   * @param angular_distance_to_heading Angular distance to heading requested
+   * @param pose Starting pose of robot
+   */
+  void isCollisionFree(
+    double & linear_vel, double & angular_vel,
+    bool is_stopped,
+    const nav_2d_msgs::Pose2DStamped & pose);
+
 protected:
   /**
    * @brief Whether robot should rotate to final goal orientation
@@ -153,7 +165,8 @@ protected:
   void rotateToHeading(
     double & linear_vel,
     double & angular_vel,
-    const double & angle_to_path);
+    const double & angle_to_path,
+    const nav_2d_msgs::Pose2DStamped & robot_pose);
   
   /**
    * @brief Helper method for two common operations for the operating on the global_plan
@@ -239,6 +252,8 @@ protected:
 
   pluginlib::ClassLoader<TrajectoryCritic> critic_loader_;
   std::vector<TrajectoryCritic::Ptr> critics_;
+  std::unique_ptr<FootprintCollisionChecker<costmap_2d::Costmap2D *>>
+  collision_checker_;
 
   std::string dwb_plugin_name_;
 
@@ -248,6 +263,9 @@ protected:
   bool check_xy_;
   
   // Params for rotate to goal
+  double control_duration_;
+  double controller_frequency_;
+  double simulate_ahead_time_;
   double goal_angular_vel_scaling_angle_;
   double goal_angle_scaling_factor_;
   double rotate_to_goal_max_angular_vel_;

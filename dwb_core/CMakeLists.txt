@@ -147,6 +147,7 @@ include_directories(
 ## Declare a C++ library
 add_library(dwb_controller
   src/dwb_controller.cpp
+  src/footprint_collision_checker.cpp
   src/illegal_trajectory_tracker.cpp
   src/publisher.cpp
   src/trajectory_utils.cpp
