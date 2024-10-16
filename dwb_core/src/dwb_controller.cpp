@@ -621,7 +621,7 @@ void DWBController::rotateToHeading(
   const double sign = angle_to_path > 0.0 ? 1.0 : -1.0;
   double angle_to_goal;
 
-  bool is_stopped = fabs(angle_to_goal) <= yaw_tolerance_;
+  bool is_stopped = fabs(angle_to_path) <= yaw_tolerance_;
       
   if (std::abs(angle_to_path) < angles::from_degrees(goal_angular_vel_scaling_angle_)) {
       angle_to_goal = std::abs(angle_to_path) / goal_angle_scaling_factor_;
@@ -637,11 +637,11 @@ void DWBController::rotateToHeading(
   } else {
       rotate_to_goal_angular_vel = unbounded_angular_vel;
   }
-  isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose);
-
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
                            rotate_to_goal_max_angular_vel_);
+
+  isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose);
 }
 
 void DWBController::isCollisionFree(
@@ -668,6 +668,8 @@ void DWBController::isCollisionFree(
     footprint_cost = collision_checker_->footprintCostAtPose(
       pose.pose.x, pose.pose.y,
       yaw, costmap_ros_->getRobotFootprint());
+    
+    ROS_INFO("footprint cost = %lf", footprint_cost);
 
     if (footprint_cost == static_cast<double>(NO_INFORMATION) &&
       costmap_ros_->getLayeredCostmap()->isTrackingUnknown())
