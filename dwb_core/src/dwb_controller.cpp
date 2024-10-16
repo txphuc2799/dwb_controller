@@ -130,7 +130,7 @@ void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d
     // initialize collision checker and set costmap
     collision_checker_ = std::make_unique<
       FootprintCollisionChecker<costmap_2d::Costmap2D *>>(costmap_ros->getCostmap());
-      
+
     ROS_INFO("Created %s plugin.", controller_name_.c_str());
     initialized_ = true;
   }
@@ -642,11 +642,11 @@ void DWBController::rotateToHeading(
   } else {
       rotate_to_goal_angular_vel = unbounded_angular_vel;
   }
+  isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose);
+
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
                            rotate_to_goal_max_angular_vel_);
-
-  isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose);
 }
 
 void DWBController::isCollisionFree(
