@@ -165,7 +165,6 @@ protected:
   void prepareGlobalPlan(
     const nav_2d_msgs::Pose2DStamped & pose, nav_2d_msgs::Path2D & transformed_plan,
     nav_2d_msgs::Pose2DStamped & goal_pose,
-    double &dist_to_goal,
     double &angle_to_goal,
     bool publish_plan = true);
 
@@ -194,7 +193,6 @@ protected:
    */
   virtual nav_2d_msgs::Path2D transformGlobalPlan(
     const nav_2d_msgs::Pose2DStamped & pose,
-    double &dist_to_goal,
     double &angle_to_goal);
 
   nav_2d_msgs::Path2D global_plan_;  ///< Saved Global Plan

@@ -290,11 +290,10 @@ bool DWBController::isGoalReached(
 void DWBController::prepareGlobalPlan(
   const nav_2d_msgs::Pose2DStamped & pose, nav_2d_msgs::Path2D & transformed_plan,
   nav_2d_msgs::Pose2DStamped & goal_pose,
-  double &dist_to_goal,
   double &angle_to_goal,
   bool publish_plan)
 {
-  transformed_plan = transformGlobalPlan(pose, dist_to_goal, angle_to_goal);
+  transformed_plan = transformGlobalPlan(pose, angle_to_goal);
   if (publish_plan) {
     pub_->publishTransformedPlan(transformed_plan);
   }
@@ -320,13 +319,11 @@ DWBController::computeVelocityCommands(
   nav_2d_msgs::Path2D transformed_plan;
   nav_2d_msgs::Pose2DStamped transformed_end_pose;
 
-  double dist_to_goal;
   double angle_to_goal;
 
   prepareGlobalPlan(pose,
                     transformed_plan,
                     transformed_end_pose,
-                    dist_to_goal,
                     angle_to_goal);
 
   costmap_2d::Costmap2D * costmap = costmap_ros_->getCostmap();
@@ -492,7 +489,6 @@ DWBController::scoreTrajectory(
 nav_2d_msgs::Path2D
 DWBController::transformGlobalPlan(
   const nav_2d_msgs::Pose2DStamped & pose,
-  double &dist_to_goal,
   double &angle_to_goal)
 {
   if (global_plan_.poses.empty()) {
@@ -509,9 +505,6 @@ DWBController::transformGlobalPlan(
           ControllerTFError("Unable to transform robot pose into global plan's frame");
   }
 
-  double dx_ = global_plan_.poses.back().x - robot_pose.pose.x;
-  double dy_ = global_plan_.poses.back().y - robot_pose.pose.y;
-  dist_to_goal = std::hypot(dx_, dy_);
   angle_to_goal = angles::normalize_angle(global_plan_.poses.back().theta - robot_pose.pose.theta);
 
   // we'll discard points on the plan that are outside the local costmap
