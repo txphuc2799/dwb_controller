@@ -336,17 +336,23 @@ DWBController::computeVelocityCommands(
   cmd_vel.header.stamp = ros::Time::now();
 
   // Check if xy reached
-  if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
-    if (shouldRotateToGoalHeading(angle_to_goal)) {
-      ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
-      rotateToHeading(cmd_vel.velocity.x, cmd_vel.velocity.theta, angle_to_goal, pose);
+  try {
+    if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
+      if (shouldRotateToGoalHeading(angle_to_goal)) {
+        ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
+        rotateToHeading(cmd_vel.velocity.x, cmd_vel.velocity.theta, angle_to_goal, pose);
+      }
+      else {
+        goal_reached_ = true;
+        cmd_vel.velocity.x = 0.0;
+        cmd_vel.velocity.theta = 0.0;
+      }
+      return cmd_vel;
     }
-    else {
-      goal_reached_ = true;
-      cmd_vel.velocity.x = 0.0;
-      cmd_vel.velocity.theta = 0.0;
-    }
-    return cmd_vel;
+  }
+  catch(const std::runtime_error& e)
+  {
+    throw dwb_core::NoValidControl(std::string(e.what()));
   }
 
   for (TrajectoryCritic::Ptr & critic : critics_) {
