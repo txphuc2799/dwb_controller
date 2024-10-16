@@ -355,8 +355,7 @@ DWBController::computeVelocityCommands(
       return cmd_vel;
     }
   }
-  catch(const std::runtime_error& e)
-  {
+  catch(const std::runtime_error& e) {
     throw dwb_core::NoValidControl(std::string(e.what()));
   }
 
