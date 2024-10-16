@@ -229,8 +229,6 @@ bool DWBController::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   robot_vel_.angular.z = tf2::getYaw(robot_vel_tf.pose.orientation);
 
   goal_reached_ = false;
-  double dist_to_goal;
-  double angle_to_goal;
 
   try {
     nav_2d_msgs::Twist2DStamped cmd_vel2d = computeVelocityCommands(
