@@ -126,6 +126,11 @@ void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d
               "Couldn't load critics! Caught exception: " +
               std::string(e.what()));
     }
+
+    // initialize collision checker and set costmap
+    collision_checker_ = std::make_unique<
+      FootprintCollisionChecker<costmap_2d::Costmap2D *>>(costmap_ros->getCostmap());
+      
     ROS_INFO("Created %s plugin.", controller_name_.c_str());
     initialized_ = true;
   }
