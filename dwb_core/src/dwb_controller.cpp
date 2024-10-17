@@ -646,10 +646,11 @@ bool DWBController::rotateToHeading(
   } else {
       rotate_to_goal_angular_vel = unbounded_angular_vel;
   }
-  if (!isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose)
-      && use_collision_detection_) {
-    angular_vel = 0.0;
-    return false;
+  if (use_collision_detection_) {
+    if (!isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose)) {
+      angular_vel = 0.0;
+      return false;
+    }
   }
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
