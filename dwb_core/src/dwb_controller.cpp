@@ -656,6 +656,7 @@ bool DWBController::rotateToHeading(
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
                            rotate_to_goal_max_angular_vel_);
+  return true;
 }
 
 bool DWBController::isCollisionFree(
