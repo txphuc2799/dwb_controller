@@ -53,3 +53,11 @@ DWBController:
     heading_scale: 0.1
     xy_local_goal_tolerance: 0.25
     angle_threshold: 0.78539816  # 45 degrees
+  
+  publish_evaluation: true
+  publish_global_plan: true
+  publish_transformed_plan: true
+  publish_local_plan: true
+  publish_trajectories: true
+  publish_cost_grid_pc: false
+  marker_lifetime: 0.1
