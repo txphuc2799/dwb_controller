@@ -264,6 +264,7 @@ protected:
   bool check_xy_;
   
   // Params for rotate to goal
+  bool use_collision_detection_;
   double control_duration_;
   double controller_frequency_;
   double simulate_ahead_time_;

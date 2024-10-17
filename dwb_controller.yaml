@@ -26,6 +26,7 @@ DWBController:
   short_circuit_trajectory_evaluation: True
   limit_vel_cmd_in_traj: False
   stateful: True
+  use_collision_detection: false
   goal_angular_vel_scaling_angle: 20.0
   goal_angle_scaling_factor: 0.7
   rotate_to_goal_max_angular_vel: 0.4

@@ -86,6 +86,7 @@ void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d
     pnh_.param("controller_frequency", controller_frequency_, 15.0);
     control_duration_ = 1 / controller_frequency_;
     pnh_.param("simulate_ahead_time", simulate_ahead_time_, 30.0);
+    pnh_.param("use_collision_detection", use_collision_detection_, false);
     pnh_.param("goal_angular_vel_scaling_angle", goal_angular_vel_scaling_angle_, 30.0);
     pnh_.param("goal_angle_scaling_factor", goal_angle_scaling_factor_, 1.2);
     pnh_.param("rotate_to_goal_max_angular_vel", rotate_to_goal_max_angular_vel_, 0.5);
@@ -344,67 +345,64 @@ bool DWBController::computeVelocityCommands(
   vel_out.header.stamp = ros::Time::now();
 
   // Check if xy reached
-  try {
-    if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
-      if (shouldRotateToGoalHeading(angle_to_goal)) {
-        ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
-        if (!rotateToHeading(vel_out.velocity.x,
-                             vel_out.velocity.theta,
-                             angle_to_goal, pose)) {
-          return false;
-        }
+  if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
+    if (shouldRotateToGoalHeading(angle_to_goal)) {
+      ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
+      if (!rotateToHeading(vel_out.velocity.x,
+                           vel_out.velocity.theta,
+                           angle_to_goal, pose)) {
+        return false;
       }
-      else {
-        goal_reached_ = true;
-        vel_out.velocity.x = 0.0;
-        vel_out.velocity.theta = 0.0;
-      }
-      return true;
     }
-  }
-  catch(const std::runtime_error& e) {
-    throw dwb_core::NoValidControl(std::string(e.what()));
-  }
-
-  for (TrajectoryCritic::Ptr & critic : critics_) {
-    if (!critic->prepare(pose.pose, velocity, transformed_end_pose.pose, transformed_plan)) {
-      ROS_WARN("%s: ""A scoring function failed to prepare", controller_name_.c_str());
+    else {
+      goal_reached_ = true;
+      vel_out.velocity.x = 0.0;
+      vel_out.velocity.theta = 0.0;
     }
-  }
-
-  try {
-    dwb_msgs::TrajectoryScore best = coreScoringAlgorithm(pose.pose, velocity, results);
-
-    vel_out.velocity = best.traj.velocity;
-
-    // debrief stateful scoring functions
-    for (TrajectoryCritic::Ptr & critic : critics_) {
-      critic->debrief(vel_out.velocity);
-    }
-
-    lock.unlock();
-
-    pub_->publishLocalPlan(pose.header, best.traj);
-    pub_->publishCostGrid(costmap_ros_, critics_);
-
     return true;
-  } catch (const dwb_core::NoLegalTrajectoriesException & e) {
-    nav_2d_msgs::Twist2D empty_cmd;
-    dwb_msgs::Trajectory2D empty_traj;
-    // debrief stateful scoring functions
+    
+  } else {
     for (TrajectoryCritic::Ptr & critic : critics_) {
-      critic->debrief(empty_cmd);
+      if (!critic->prepare(pose.pose, velocity, transformed_end_pose.pose, transformed_plan)) {
+        ROS_WARN("%s: ""A scoring function failed to prepare", controller_name_.c_str());
+      }
     }
 
-    lock.unlock();
+    try {
+      dwb_msgs::TrajectoryScore best = coreScoringAlgorithm(pose.pose, velocity, results);
 
-    pub_->publishLocalPlan(pose.header, empty_traj);
-    pub_->publishCostGrid(costmap_ros_, critics_);
+      vel_out.velocity = best.traj.velocity;
 
-    throw dwb_core::NoValidControl(
-            "Could not find a legal trajectory: " +
-            std::string(e.what()));
+      // debrief stateful scoring functions
+      for (TrajectoryCritic::Ptr & critic : critics_) {
+        critic->debrief(vel_out.velocity);
+      }
+
+      lock.unlock();
+
+      pub_->publishLocalPlan(pose.header, best.traj);
+      pub_->publishCostGrid(costmap_ros_, critics_);
+
+      return true;
+    } catch (const dwb_core::NoLegalTrajectoriesException & e) {
+      nav_2d_msgs::Twist2D empty_cmd;
+      dwb_msgs::Trajectory2D empty_traj;
+      // debrief stateful scoring functions
+      for (TrajectoryCritic::Ptr & critic : critics_) {
+        critic->debrief(empty_cmd);
+      }
+
+      lock.unlock();
+
+      pub_->publishLocalPlan(pose.header, empty_traj);
+      pub_->publishCostGrid(costmap_ros_, critics_);
+
+      throw dwb_core::NoValidControl(
+              "Could not find a legal trajectory: " +
+              std::string(e.what()));
+    }
   }
+
 }
 
 dwb_msgs::TrajectoryScore
@@ -648,11 +646,11 @@ bool DWBController::rotateToHeading(
   } else {
       rotate_to_goal_angular_vel = unbounded_angular_vel;
   }
-  if (!isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose)) {
+  if (!isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose)
+      && use_collision_detection_) {
     angular_vel = 0.0;
     return false;
   }
-
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
                            rotate_to_goal_max_angular_vel_);
@@ -674,7 +672,7 @@ bool DWBController::isCollisionFree(
     simulated_time += control_duration_;
     yaw = initial_yaw + angular_vel * simulated_time;
 
-    // Stop simulating past the point it would be passed onto the primary controller
+    // Stop simulating past the point
     if (is_stopped) {
       break;
     }
@@ -691,7 +689,7 @@ bool DWBController::isCollisionFree(
       return false;
     }
 
-    if (footprint_cost >= static_cast<double>(LETHAL_OBSTACLE)) {
+    if (footprint_cost >= static_cast<double>(INSCRIBED_INFLATED_OBSTACLE)) {
       ROS_ERROR("%s: Detected collision ahead!", controller_name_.c_str());
       return false;
     }
