@@ -138,9 +138,10 @@ public:
    * @param results   Output param, if not NULL, will be filled in with full evaluation results
    * @return          Best command
    */
-  virtual nav_2d_msgs::Twist2DStamped computeVelocityCommands(
+  virtual bool computeVelocityCommands(
     const nav_2d_msgs::Pose2DStamped & pose,
     const nav_2d_msgs::Twist2D & velocity,
+    nav_2d_msgs::Twist2DStamped & vel_out,
     std::shared_ptr<dwb_msgs::LocalPlanEvaluation> & results);
 
   /**
@@ -149,7 +150,7 @@ public:
    * @param angular_distance_to_heading Angular distance to heading requested
    * @param pose Starting pose of robot
    */
-  void isCollisionFree(
+  bool isCollisionFree(
     double & linear_vel, double & angular_vel,
     bool is_stopped,
     const nav_2d_msgs::Pose2DStamped & pose);
@@ -162,7 +163,7 @@ protected:
    */
   bool shouldRotateToGoalHeading(double angle_to_goal);
 
-  void rotateToHeading(
+  bool rotateToHeading(
     double & linear_vel,
     double & angular_vel,
     const double & angle_to_path,

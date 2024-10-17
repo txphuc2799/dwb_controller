@@ -236,11 +236,15 @@ bool DWBController::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   robot_vel_.angular.z = tf2::getYaw(robot_vel_tf.pose.orientation);
 
   goal_reached_ = false;
+  nav_2d_msgs::Twist2DStamped cmd_vel2d;
 
   try {
-    nav_2d_msgs::Twist2DStamped cmd_vel2d = computeVelocityCommands(
+    if (!computeVelocityCommands(
       nav_2d_utils::poseStampedToPose2D(robot_pose),
-      nav_2d_utils::twist3Dto2D(robot_vel_), results);
+      nav_2d_utils::twist3Dto2D(robot_vel_),
+      cmd_vel2d, results)) {
+      return false;
+    }
     pub_->publishEvaluation(results);
     cmd_vel = nav_2d_utils::twist2Dto3D(cmd_vel2d.velocity);
     return true;
@@ -260,9 +264,9 @@ bool DWBController::isGoalReached()
 {
     if (goal_reached_)
     {
-        check_xy_ = true;
-        ROS_INFO("%s: ""GOAL Reached!", controller_name_.c_str());
-        return true;
+      check_xy_ = true;
+      ROS_INFO("%s: ""GOAL Reached!", controller_name_.c_str());
+      return true;
     }
     return false;
 }
@@ -312,10 +316,10 @@ void DWBController::prepareGlobalPlan(
   }
 }
 
-nav_2d_msgs::Twist2DStamped
-DWBController::computeVelocityCommands(
+bool DWBController::computeVelocityCommands(
   const nav_2d_msgs::Pose2DStamped & pose,
   const nav_2d_msgs::Twist2D & velocity,
+  nav_2d_msgs::Twist2DStamped & vel_out,
   std::shared_ptr<dwb_msgs::LocalPlanEvaluation> & results)
 {
   if (results) {
@@ -336,23 +340,26 @@ DWBController::computeVelocityCommands(
   costmap_2d::Costmap2D * costmap = costmap_ros_->getCostmap();
   std::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(costmap->getMutex()));
 
-  // Return Value
-  nav_2d_msgs::Twist2DStamped cmd_vel;
-  cmd_vel.header.stamp = ros::Time::now();
+  // Setup velocity
+  vel_out.header.stamp = ros::Time::now();
 
   // Check if xy reached
   try {
     if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
       if (shouldRotateToGoalHeading(angle_to_goal)) {
         ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
-        rotateToHeading(cmd_vel.velocity.x, cmd_vel.velocity.theta, angle_to_goal, pose);
+        if (!rotateToHeading(vel_out.velocity.x,
+                             vel_out.velocity.theta,
+                             angle_to_goal, pose)) {
+          return false;
+        }
       }
       else {
         goal_reached_ = true;
-        cmd_vel.velocity.x = 0.0;
-        cmd_vel.velocity.theta = 0.0;
+        vel_out.velocity.x = 0.0;
+        vel_out.velocity.theta = 0.0;
       }
-      return cmd_vel;
+      return true;
     }
   }
   catch(const std::runtime_error& e) {
@@ -368,11 +375,11 @@ DWBController::computeVelocityCommands(
   try {
     dwb_msgs::TrajectoryScore best = coreScoringAlgorithm(pose.pose, velocity, results);
 
-    cmd_vel.velocity = best.traj.velocity;
+    vel_out.velocity = best.traj.velocity;
 
     // debrief stateful scoring functions
     for (TrajectoryCritic::Ptr & critic : critics_) {
-      critic->debrief(cmd_vel.velocity);
+      critic->debrief(vel_out.velocity);
     }
 
     lock.unlock();
@@ -380,7 +387,7 @@ DWBController::computeVelocityCommands(
     pub_->publishLocalPlan(pose.header, best.traj);
     pub_->publishCostGrid(costmap_ros_, critics_);
 
-    return cmd_vel;
+    return true;
   } catch (const dwb_core::NoLegalTrajectoriesException & e) {
     nav_2d_msgs::Twist2D empty_cmd;
     dwb_msgs::Trajectory2D empty_traj;
@@ -614,7 +621,7 @@ bool DWBController::shouldRotateToGoalHeading(double angle_to_goal)
   return fabs(angle_to_goal) >= yaw_tolerance_;
 }
 
-void DWBController::rotateToHeading(
+bool DWBController::rotateToHeading(
   double & linear_vel,
   double & angular_vel,
   const double & angle_to_path,
@@ -641,14 +648,17 @@ void DWBController::rotateToHeading(
   } else {
       rotate_to_goal_angular_vel = unbounded_angular_vel;
   }
-  isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose);
+  if (!isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose)) {
+    angular_vel = 0.0;
+    return false;
+  }
 
   angular_vel = sign*clamp(rotate_to_goal_angular_vel,
                            rotate_to_goal_min_angular_vel_,
                            rotate_to_goal_max_angular_vel_);
 }
 
-void DWBController::isCollisionFree(
+bool DWBController::isCollisionFree(
   double & linear_vel, double & angular_vel,
   bool is_stopped,
   const nav_2d_msgs::Pose2DStamped & pose)
@@ -673,18 +683,19 @@ void DWBController::isCollisionFree(
       pose.pose.x, pose.pose.y,
       yaw, costmap_ros_->getRobotFootprint());
     
-    ROS_INFO("footprint cost = %lf", footprint_cost);
-
     if (footprint_cost == static_cast<double>(NO_INFORMATION) &&
       costmap_ros_->getLayeredCostmap()->isTrackingUnknown())
     {
-      throw std::runtime_error("Detected a potential collision ahead!");
+      ROS_ERROR("%s: Detected a potential collision ahead!", controller_name_.c_str());
+      return false;
     }
 
     if (footprint_cost >= static_cast<double>(LETHAL_OBSTACLE)) {
-      throw std::runtime_error("Detected collision ahead!");
+      ROS_ERROR("%s: Detected collision ahead!", controller_name_.c_str());
+      return false;
     }
   }
+  return true;
 }
 
 }  // namespace dwb_core
