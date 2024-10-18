@@ -65,7 +65,7 @@ namespace dwb_core
 DWBController::DWBController()
 : traj_gen_loader_("dwb_core", "dwb_core::TrajectoryGenerator"),
   critic_loader_("dwb_core", "dwb_core::TrajectoryCritic"),
-  initialized_(false), goal_reached_(false), check_xy_(true)
+  initialized_(false), goal_reached_(false)
 {
 }
 
@@ -83,17 +83,6 @@ void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d
 
     pnh_.param("odom_topic", odom_topic_, std::string("/odom"));
     pnh_.param("transform_tolerance", transform_tolerance_, 1.0);
-    pnh_.param("controller_frequency", controller_frequency_, 15.0);
-    control_duration_ = 1 / controller_frequency_;
-    pnh_.param("simulate_ahead_time", simulate_ahead_time_, 30.0);
-    pnh_.param("use_collision_detection", use_collision_detection_, false);
-    pnh_.param("goal_angular_vel_scaling_angle", goal_angular_vel_scaling_angle_, 30.0);
-    pnh_.param("goal_angle_scaling_factor", goal_angle_scaling_factor_, 1.2);
-    pnh_.param("rotate_to_goal_max_angular_vel", rotate_to_goal_max_angular_vel_, 0.5);
-    pnh_.param("rotate_to_goal_min_angular_vel", rotate_to_goal_min_angular_vel_, 0.05);
-    pnh_.param("xy_goal_tolerance", xy_goal_tolerance_, 0.1);
-    pnh_.param("yaw_tolerance", yaw_tolerance_, 0.02);
-
     pnh_.param("prune_plan", prune_plan_, true);
     pnh_.param("prune_distance", prune_distance_, 2.0);
     pnh_.param("forward_prune_distance", forward_prune_distance_, 2.0);
@@ -131,6 +120,9 @@ void DWBController::initialize(std::string name, tf2_ros::Buffer *tf, costmap_2d
     // initialize collision checker and set costmap
     collision_checker_ = std::make_unique<
       FootprintCollisionChecker<costmap_2d::Costmap2D *>>(costmap_ros->getCostmap());
+    
+    // Initialized goal checker
+    goal_checker_ = std::make_unique<GoalChecker>(controller_name_, pnh_);
 
     ROS_INFO("Created %s plugin.", controller_name_.c_str());
     initialized_ = true;
@@ -265,38 +257,11 @@ bool DWBController::isGoalReached()
 {
     if (goal_reached_)
     {
-      check_xy_ = true;
+      goal_checker_->reset();
       ROS_INFO("%s: ""GOAL Reached!", controller_name_.c_str());
       return true;
     }
     return false;
-}
-
-bool DWBController::isGoalReached(
-  const nav_2d_msgs::Pose2DStamped & curr_robot_pose,
-  nav_2d_msgs::Pose2DStamped & goal_pose,
-  nav_2d_msgs::Pose2DStamped & transformed_end_pose)
-{
-  // When robot rotate in place check if recieve a new goal before done
-  // rotate in place avoid robot get oscillation
-  if (prev_goal_pose_.pose != goal_pose.pose) {
-    check_xy_ = true;
-  }
-  prev_goal_pose_.pose = goal_pose.pose;
-  
-  double dx = curr_robot_pose.pose.x - transformed_end_pose.pose.x,
-         dy = curr_robot_pose.pose.y - transformed_end_pose.pose.y;
-  if (check_xy_) {
-    if (dx * dx + dy * dy > xy_goal_tolerance_*xy_goal_tolerance_) {
-      return false;
-    }
-    else {
-      check_xy_ = false;
-      return true;
-    }
-  } else {
-    return true;
-  }
 }
 
 void DWBController::prepareGlobalPlan(
@@ -345,20 +310,11 @@ bool DWBController::computeVelocityCommands(
   vel_out.header.stamp = ros::Time::now();
 
   // Check if xy reached
-  if (isGoalReached(pose, goal_pose_, transformed_end_pose)) {
-    if (shouldRotateToGoalHeading(angle_to_goal)) {
-      ROS_INFO("%s: ""Rotating to goal heading...", controller_name_.c_str());
-      if (!rotateToHeading(vel_out.velocity.x,
-                           vel_out.velocity.theta,
-                           angle_to_goal, pose)) {
-        return false;
-      }
-    }
-    else {
-      goal_reached_ = true;
-      vel_out.velocity.x = 0.0;
-      vel_out.velocity.theta = 0.0;
-    }
+  if (goal_checker_->isGoalReached(pose,
+                                   goal_pose_,
+                                   transformed_end_pose,
+                                   vel_out,
+                                   angle_to_goal, goal_reached_)) {
     return true;
     
   } else {
@@ -611,91 +567,6 @@ DWBController::transformGlobalPlan(
     throw dwb_core::InvalidPath("Resulting plan has 0 poses in it.");
   }
   return transformed_plan;
-}
-
-bool DWBController::shouldRotateToGoalHeading(double angle_to_goal)
-{
-  // Whether we should rotate robot to goal heading
-  return fabs(angle_to_goal) >= yaw_tolerance_;
-}
-
-bool DWBController::rotateToHeading(
-  double & linear_vel,
-  double & angular_vel,
-  const double & angle_to_path,
-  const nav_2d_msgs::Pose2DStamped & robot_pose)
-{
-  // Rotate in place using max angular velocity / acceleration possible
-  linear_vel = 0.0;
-  const double sign = angle_to_path > 0.0 ? 1.0 : -1.0;
-  double angle_to_goal;
-
-  bool is_stopped = fabs(angle_to_path) <= yaw_tolerance_;
-      
-  if (std::abs(angle_to_path) < angles::from_degrees(goal_angular_vel_scaling_angle_)) {
-      angle_to_goal = std::abs(angle_to_path) / goal_angle_scaling_factor_;
-  } else {
-      angle_to_goal = 1.0;
-  }
-
-  double rotate_to_goal_angular_vel = rotate_to_goal_max_angular_vel_;
-  double unbounded_angular_vel = rotate_to_goal_angular_vel * angle_to_goal;
-
-  if (unbounded_angular_vel < rotate_to_goal_min_angular_vel_) {
-      rotate_to_goal_angular_vel = rotate_to_goal_min_angular_vel_;
-  } else {
-      rotate_to_goal_angular_vel = unbounded_angular_vel;
-  }
-  if (use_collision_detection_) {
-    if (!isCollisionFree(linear_vel, angular_vel, is_stopped, robot_pose)) {
-      angular_vel = 0.0;
-      return false;
-    }
-  }
-  angular_vel = sign*clamp(rotate_to_goal_angular_vel,
-                           rotate_to_goal_min_angular_vel_,
-                           rotate_to_goal_max_angular_vel_);
-  return true;
-}
-
-bool DWBController::isCollisionFree(
-  double & linear_vel, double & angular_vel,
-  bool is_stopped,
-  const nav_2d_msgs::Pose2DStamped & pose)
-{
-  // Simulate rotation ahead by time in control frequency increments
-  double simulated_time = 0.0;
-  double initial_yaw = pose.pose.theta;
-  double yaw = 0.0;
-  double footprint_cost = 0.0;
-
-  while (simulated_time < simulate_ahead_time_) {
-    simulated_time += control_duration_;
-    yaw = initial_yaw + angular_vel * simulated_time;
-
-    // Stop simulating past the point
-    if (is_stopped) {
-      break;
-    }
-
-    using namespace costmap_2d;  // NOLINT
-    footprint_cost = collision_checker_->footprintCostAtPose(
-      pose.pose.x, pose.pose.y,
-      yaw, costmap_ros_->getRobotFootprint());
-    
-    if (footprint_cost == static_cast<double>(NO_INFORMATION) &&
-      costmap_ros_->getLayeredCostmap()->isTrackingUnknown())
-    {
-      ROS_ERROR("%s: Detected a potential collision ahead!", controller_name_.c_str());
-      return false;
-    }
-
-    if (footprint_cost >= static_cast<double>(INSCRIBED_INFLATED_OBSTACLE)) {
-      ROS_ERROR("%s: Detected collision ahead!", controller_name_.c_str());
-      return false;
-    }
-  }
-  return true;
 }
 
 }  // namespace dwb_core

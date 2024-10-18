@@ -53,6 +53,7 @@
 #include <base_local_planner/odometry_helper_ros.h>
 #include <costmap_2d/costmap_2d_ros.h>
 #include <dwb_core/footprint_collision_checker.hpp>
+#include <dwb_core/goal_checker.hpp>
 
 namespace dwb_core
 {
@@ -103,15 +104,6 @@ public:
   bool isGoalReached();
 
   /**
-   * @brief Check if robot reaches xy
-   * @return If true, check yaw -> True if yaw reached.
-   */
-  bool isGoalReached(
-    const nav_2d_msgs::Pose2DStamped & curr_robot_pose,
-    nav_2d_msgs::Pose2DStamped & goal_pose,
-    nav_2d_msgs::Pose2DStamped & transformed_end_pose);
-
-  /**
    * @brief Score a given command. Can be used for testing.
    *
    * Given a trajectory, calculate the score where lower scores are better.
@@ -144,31 +136,7 @@ public:
     nav_2d_msgs::Twist2DStamped & vel_out,
     std::shared_ptr<dwb_msgs::LocalPlanEvaluation> & results);
 
-  /**
-   * @brief Checks if rotation is safe
-   * @param cmd_vel Velocity to check over
-   * @param angular_distance_to_heading Angular distance to heading requested
-   * @param pose Starting pose of robot
-   */
-  bool isCollisionFree(
-    double & linear_vel, double & angular_vel,
-    bool is_stopped,
-    const nav_2d_msgs::Pose2DStamped & pose);
-
 protected:
-  /**
-   * @brief Whether robot should rotate to final goal orientation
-   * @param target_pose current lookahead point
-   * @return Whether should rotate to goal heading
-   */
-  bool shouldRotateToGoalHeading(double angle_to_goal);
-
-  bool rotateToHeading(
-    double & linear_vel,
-    double & angular_vel,
-    const double & angle_to_path,
-    const nav_2d_msgs::Pose2DStamped & robot_pose);
-  
   /**
    * @brief Helper method for two common operations for the operating on the global_plan
    *
@@ -242,7 +210,6 @@ protected:
   base_local_planner::OdometryHelperRos odom_helper_; //!< Provides an interface to receive the current velocity from the robot
   geometry_msgs::Twist robot_vel_; //!< Store current robot translational and angular velocity (vx, vy, omega)
   nav_2d_msgs::Pose2DStamped goal_pose_;
-  nav_2d_msgs::Pose2DStamped prev_goal_pose_;
 
   std::unique_ptr<DWBPublisher> pub_;
   std::vector<std::string> default_critic_namespaces_;
@@ -255,25 +222,14 @@ protected:
   std::vector<TrajectoryCritic::Ptr> critics_;
   std::unique_ptr<FootprintCollisionChecker<costmap_2d::Costmap2D *>>
   collision_checker_;
+  std::unique_ptr<GoalChecker> goal_checker_;
 
   std::string dwb_plugin_name_;
 
   bool short_circuit_trajectory_evaluation_;
   bool initialized_;
   bool goal_reached_;
-  bool check_xy_;
-  
-  // Params for rotate to goal
-  bool use_collision_detection_;
-  double control_duration_;
-  double controller_frequency_;
-  double simulate_ahead_time_;
-  double goal_angular_vel_scaling_angle_;
-  double goal_angle_scaling_factor_;
-  double rotate_to_goal_max_angular_vel_;
-  double rotate_to_goal_min_angular_vel_;
-  double xy_goal_tolerance_;
-  double yaw_tolerance_;
+
 };
 
 }  // namespace dwb_core

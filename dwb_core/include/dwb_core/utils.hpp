@@ -32,6 +32,11 @@ inline double hypot(double x, double y, double z)
     return (std::sqrt(x*x + y*y + z*y));
 }
 
+inline double hypot_sq(double dx, double dy)
+{
+  return dx*dx + dy*dy;
+}
+
 /**
  * @brief Get a geometry_msgs Quaternion from a yaw angle
  * @param angle Yaw angle to generate a quaternion from
