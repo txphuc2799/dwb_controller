@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>dwb_critics</name>
+  <version>0.0.0</version>
+  <description>The dwb_critics package</description>
+  <maintainer email="amr@todo.todo">amr</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>roscpp</build_depend>
+  <build_export_depend>roscpp</build_export_depend>
+  <exec_depend>roscpp</exec_depend>
+
+  <depend>geometry_msgs</depend>
+  <depend>dwb_core</depend>
+  <depend>costmap_queue</depend>
+  <depend>pluginlib</depend>
+  <depend>costmap_2d</depend>
+  <depend>nav_2d_utils</depend>
+  <depend>angles</depend>
+
+  <export>
+    <dwb_core plugin="${prefix}/default_critics.xml"/>
+  </export>
+</package>
